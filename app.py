@@ -1,109 +1,75 @@
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
-from sklearn.model_selection import train_test_split
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
-import shap
-import os
+from fastapi import FastAPI
+from pydantic import BaseModel
 import joblib
+import pandas as pd
+import uvicorn
+import os
 
-# Set aesthetic style
-sns.set_theme(style="whitegrid", palette="muted")
-plt.rcParams['figure.figsize'] = (10, 6)
+# 1. Load model/dropout_pipeline.pkl
+MODEL_PATH = 'model/dropout_pipeline.pkl'
 
-MODEL_PATH = 'model/rf_model.pkl'
-DATASET_PATH = 'dataset/DATASET_TRACIA_50K_FINAL - DATASET_TRACIA_50K_FINAL.csv'
+if not os.path.exists(MODEL_PATH):
+    print(f"❌ Error: Model file {MODEL_PATH} not found. Please run training.py first.")
+    pipeline = None
+else:
+    print(f"📦 Loading real trained model from {MODEL_PATH}...")
+    pipeline = joblib.load(MODEL_PATH)
 
-def predict_interactive(model, feature_names):
-    print("\n🔮 --- Prediction for New Data ---")
-    print("Please enter the values for the following features:")
-    input_data = {}
-    for feature in feature_names:
-        while True:
-            try:
-                val = input(f"Input {feature}: ")
-                input_data[feature] = float(val)
-                break
-            except ValueError:
-                print("❌ Invalid input. Please enter a numerical value.")
+# 2. Gunakan FastAPI
+app = FastAPI(title="Student Dropout Prediction API")
+
+# Input Schema
+class StudentData(BaseModel):
+    Semester: int
+    Current_GPA: float
+    GPA_Trend: float
+    Attendance_Rate: float
+    Credit_Accumulation_Velocity: float
+    Failed_Course_Count: int
+    Total_Credits_Completed: int
+    Payment_Status: str
+    Average_Final_Score: float
+    Highest_Final_Score: float
+    Lowest_Final_Score: float
+    Final_Score_Std: float
+
+# 3. Endpoint GET /
+@app.get("/")
+def read_root():
+    return {"status": "online", "message": "Real Dropout Prediction API"}
+
+# 4. Endpoint POST /predict
+@app.post("/predict")
+def predict(data: StudentData):
+    if pipeline is None:
+        return {"error": "Model not loaded."}
     
-    # Create DataFrame for prediction
-    new_df = pd.DataFrame([input_data])
-    prediction = model.predict(new_df)[0]
-    probability = model.predict_proba(new_df)[0]
+    # Convert JSON to DataFrame
+    input_df = pd.DataFrame([data.dict()])
     
-    print("\n🎯 --- Prediction Results ---")
-    status = "⚠️ HIGH RISK" if prediction == 1 else "✅ LOW RISK"
-    color_code = "\033[91m" if prediction == 1 else "\033[92m"
-    reset_code = "\033[0m"
+    # 6. Prediksi menggunakan model PKL asli
+    prediction_int = int(pipeline.predict(input_df)[0])
     
-    print(f"Prediction: {color_code}{status}{reset_code}")
-    print(f"Probability: Low Risk ({probability[0]:.2%}), High Risk ({probability[1]:.2%})")
-
-def main():
-    print("🚀 Starting TRACIA Classification with Random Forest and SHAP...")
+    # 7. Gunakan predict_proba()
+    # probability kelas "Yes" (1)
+    probability = float(pipeline.predict_proba(input_df)[0][1])
     
-    # 1. Load Dataset (still needed for column names and SHAP if retraining)
-    if not os.path.exists(DATASET_PATH):
-        print(f"❌ Dataset not found at {DATASET_PATH}")
-        return
-
-    df = pd.read_csv(DATASET_PATH)
-    if 'Student_ID' in df.columns:
-        df = df.drop(columns=['Student_ID'])
+    prediction_label = "Yes" if prediction_int == 1 else "No"
     
-    X = df.drop(columns=['Risk_Label'])
-    y = df['Risk_Label']
-    feature_names = X.columns.tolist()
-
-    rf_model = None
-
-    # 2. Load or Train Model
-    if os.path.exists(MODEL_PATH):
-        print(f"📦 Loading existing model from {MODEL_PATH}...")
-        rf_model = joblib.load(MODEL_PATH)
+    # 8. Buat Risk_Level
+    if probability < 0.30:
+        risk_level = "Low"
+    elif probability < 0.70:
+        risk_level = "Medium"
     else:
-        print("🌲 Model not found. Training new Random Forest Classifier...")
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
-        
-        rf_model = RandomForestClassifier(n_estimators=100, random_state=42, n_jobs=-1)
-        rf_model.fit(X_train, y_train)
-        
-        # Save Model
-        os.makedirs(os.path.dirname(MODEL_PATH), exist_ok=True)
-        joblib.dump(rf_model, MODEL_PATH)
-        print(f"💾 Model saved to {MODEL_PATH}")
-        
-        # Evaluation (only if retraining)
-        print("\n📝 Model Evaluation:")
-        y_pred = rf_model.predict(X_test)
-        print(f"✅ Accuracy: {accuracy_score(y_test, y_pred):.4f}")
-        
-        # SHAP Explanation (only if retraining or requested)
-        print("\n🔍 Generating SHAP explanations...")
-        explainer = shap.TreeExplainer(rf_model)
-        shap_values = explainer.shap_values(X_test)
-        
-        # Plotting
-        plt.figure(figsize=(12, 8))
-        if isinstance(shap_values, list):
-            shap.summary_plot(shap_values[1], X_test, show=False)
-        else:
-            shap.summary_plot(shap_values, X_test, show=False)
-        plt.title('SHAP Summary Plot', fontsize=16)
-        plt.savefig('shap_summary_plot.png', dpi=300, bbox_inches='tight')
-        print("💾 SHAP Summary Plot saved.")
-
-    # 3. Interactive Prediction
-    while True:
-        predict_interactive(rf_model, feature_names)
-        cont = input("\nDo you want to try another prediction? (y/n): ").lower()
-        if cont != 'y':
-            break
-
-    print("\n✨ Process Completed Successfully!")
+        risk_level = "High"
+    
+    # Output JSON
+    return {
+        "prediction": prediction_label,
+        "dropout_risk_probability": round(probability, 2),
+        "risk_level": risk_level
+    }
 
 if __name__ == "__main__":
-    main()
+    uvicorn.run(app, host="0.0.0.0", port=8000)
