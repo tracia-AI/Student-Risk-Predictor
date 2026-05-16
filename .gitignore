@@ -9,8 +9,6 @@ pyvenv.cfg
 __pycache__/
 *.pyc
 
-# Data & Models
-model/*.pkl
 # dataset/  <-- Buka comment ini jika tidak ingin mengupload dataset
 
 # Visualization Results
