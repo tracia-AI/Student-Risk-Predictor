@@ -1,18 +1,13 @@
+# NOTEBOOK IGNORE FILE
+
 # Virtual Environment
-bin/
-lib/
-include/
-share/
-pyvenv.cfg
+notebooks/bin/
+notebooks/lib/
+notebooks/include/
+notebooks/share/
+notebooks/pyvenv.cfg
 
 # Python Cache
-__pycache__/
-*.pyc
+notebooks/__pycache__/
+notebooks/*.pyc
 
-# dataset/  <-- Buka comment ini jika tidak ingin mengupload dataset
-
-# Visualization Results
-*.png
-
-# OS Specific
-.DS_Store
