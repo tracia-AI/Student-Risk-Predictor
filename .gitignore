@@ -1,13 +1,13 @@
-# NOTEBOOK IGNORE FILE
-
-# Virtual Environment
+# NOTEBOOK IGNORE
 notebooks/bin/
 notebooks/lib/
 notebooks/include/
 notebooks/share/
 notebooks/pyvenv.cfg
 
-# Python Cache
 notebooks/__pycache__/
 notebooks/*.pyc
 
+# FRONTEND IGNORE
+frontend/node_modules/
+frontend/.env

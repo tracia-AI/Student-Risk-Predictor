@@ -1,24 +1,11 @@
-from fastapi import FastAPI
-from pydantic import BaseModel
 import joblib
 import pandas as pd
-import uvicorn
 import os
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
-# 1. Load model/dropout_pipeline.pkl
-MODEL_PATH = 'model/dropout_pipeline.pkl'
-
-if not os.path.exists(MODEL_PATH):
-    print(f"❌ Error: Model file {MODEL_PATH} not found. Please run training.py first.")
-    pipeline = None
-else:
-    print(f"📦 Loading real trained model from {MODEL_PATH}...")
-    pipeline = joblib.load(MODEL_PATH)
-
-# 2. Gunakan FastAPI
-app = FastAPI(title="Student Dropout Prediction API")
-
-# Input Schema
+# 1. Define Input Schema (Pydantic)
 class StudentData(BaseModel):
     Semester: int
     Current_GPA: float
@@ -33,43 +20,65 @@ class StudentData(BaseModel):
     Lowest_Final_Score: float
     Final_Score_Std: float
 
-# 3. Endpoint GET /
-@app.get("/")
-def read_root():
-    return {"status": "online", "message": "Real Dropout Prediction API"}
+# 2. Initialize FastAPI
+app = FastAPI(title="Student Dropout Prediction API")
 
-# 4. Endpoint POST /predict
+# --- CORS Configuration ---
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allow all origins (for development)
+    allow_credentials=True,
+    allow_methods=["*"],  # Allow all HTTP methods (GET, POST, etc.)
+    allow_headers=["*"],  # Allow all headers
+)
+# ---------------------------
+
+# 3. Load Trained Model Pipeline
+MODEL_PATH = "model/dropout_pipeline.pkl"
+
+if not os.path.exists(MODEL_PATH):
+    print(f"⚠️ Warning: Model file not found at {MODEL_PATH}. Please run training.py first.")
+    model = None
+else:
+    model = joblib.load(MODEL_PATH)
+    print("✅ Model loaded successfully.")
+
+@app.get("/")
+def home():
+    return {"message": "Student Dropout Prediction API is running (CORS Enabled)"}
+
 @app.post("/predict")
 def predict(data: StudentData):
-    if pipeline is None:
-        return {"error": "Model not loaded."}
+    if model is None:
+        raise HTTPException(status_code=500, detail="Model not loaded on server.")
     
-    # Convert JSON to DataFrame
-    input_df = pd.DataFrame([data.dict()])
-    
-    # 6. Prediksi menggunakan model PKL asli
-    prediction_int = int(pipeline.predict(input_df)[0])
-    
-    # 7. Gunakan predict_proba()
-    # probability kelas "Yes" (1)
-    probability = float(pipeline.predict_proba(input_df)[0][1])
-    
-    prediction_label = "Yes" if prediction_int == 1 else "No"
-    
-    # 8. Buat Risk_Level
-    if probability < 0.30:
-        risk_level = "Low"
-    elif probability < 0.70:
-        risk_level = "Medium"
-    else:
-        risk_level = "High"
-    
-    # Output JSON
-    return {
-        "prediction": prediction_label,
-        "dropout_risk_probability": round(probability, 2),
-        "risk_level": risk_level
-    }
+    try:
+        # Convert input to DataFrame
+        input_df = pd.DataFrame([data.model_dump()])
+
+        # Predict dropout probability
+        prob = model.predict_proba(input_df)[0][1]
+
+        # Predict label (Yes/No)
+        prediction = "Yes" if prob >= 0.5 else "No"
+
+        # Determine risk level
+        if prob > 0.7:
+            risk_level = "High"
+        elif prob > 0.3:
+            risk_level = "Medium"
+        else:
+            risk_level = "Low"
+            
+        return {
+            "prediction": prediction,
+            "dropout_risk_probability": round(float(prob), 4),
+            "risk_level": risk_level
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    import uvicorn
+    uvicorn.run(app, host="127.0.0.1", port=8000)
